@@ -51,8 +51,7 @@ private:
   {
     // 使用固定大小 buffer 读取数据
     if(socket_.is_open()){
-      socket_.async_read_some(
-          asio::buffer(read_buffer_, sizeof(read_buffer_)),
+      async_read_until(socket_,streambuf_, "\n",
           std::bind(&tcp_connection::handle_read, shared_from_this(),
             asio::placeholders::error,
             asio::placeholders::bytes_transferred));
@@ -73,27 +72,20 @@ private:
         std::cerr << "Read error: " << error.message() << "\n";
         return;
     }
+
+    std::istream is(&streambuf_); //转换成输入流
+    std::string line;
+    std::getline(is, line);
     //更新最后活动时间
     last_activity_ = std::chrono::steady_clock::now();
 
-    data_.insert(data_.end(), read_buffer_, read_buffer_ + bytes_transferred);
+    std::cout << "Echoing: \"" << line << "\"\n";
 
-    size_t pos = 0;
-    while ((pos = data_.find('\n', pos)) != std::string::npos) {
-      std::string message(data_.begin(), data_.begin() + pos);
-      std::cout << "Echoing: \"" << message << "\"\n";
-
-      //  回显消息（加上 \n）
-      asio::async_write(socket_, asio::buffer(message + "\n"),
-          std::bind(&tcp_connection::handle_write, shared_from_this(),
-            asio::placeholders::error,
-            asio::placeholders::bytes_transferred));
-
-      //  移除已处理的消息
-      data_.erase(data_.begin(), data_.begin() + pos + 1);
-      pos = 0; // 重新开始查找
-    }
-
+     asio::async_write(socket_, asio::buffer(line + "\n"),
+        std::bind(&tcp_connection::handle_write, shared_from_this(),
+          asio::placeholders::error,
+          asio::placeholders::bytes_transferred));
+    
     do_read();
   }
   void handle_write(const std::error_code& error,
@@ -110,7 +102,7 @@ private:
   {
     if (!error) {
       std::cout << "Client timeout, closing connection\n";
-      socket_.cancel();
+      socket_.cancel();  //取消所有异步操作
       socket_.shutdown(tcp::socket::shutdown_both); 
       socket_.close();
     }
@@ -125,9 +117,7 @@ private:
   tcp::socket socket_;
   asio::steady_timer timer_;          
   size_t timeout_seconds_ = 5;        
-  std::string data_;                           
-  char read_buffer_[1024];
-  size_t max_message_size_;
+  asio::streambuf streambuf_;   
   std::chrono::steady_clock::time_point last_activity_; 
 };
 
