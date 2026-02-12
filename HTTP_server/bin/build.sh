@@ -1,3 +1,3 @@
 #!/bin/bash
 
-g++ -o $1 ../$1.cpp
+g++ -o $1 ../$1.cpp -std=c++20
