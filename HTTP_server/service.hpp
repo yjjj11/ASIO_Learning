@@ -3,6 +3,10 @@
 #include <unordered_map>
 #include <time.h>
 #include "file_read.hpp"
+#include <sys/sendfile.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 struct HttpRequest {
     std::string method;
@@ -25,7 +29,12 @@ struct HttpResponse {
     }
 };
 
-
+struct FileResponse {
+    int fd = -1;
+    size_t size = 0;
+    std::string content_type;
+    bool valid() const { return fd >= 0 && size > 0; }
+};
 class Service {
 public:
     // 静态方法或实例方法均可，这里用实例方法便于依赖注入
