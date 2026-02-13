@@ -1,11 +1,11 @@
+#pragma once
 #include <signal.h>
 #include <ctime>
 #include <functional>
 #include <iostream>
 #include <memory>
-#include <string>
 #include <asio.hpp>
-#include "file_read.hpp"
+#include "service.hpp"
 
 using asio::ip::tcp;
 std::string make_daytime_string()
@@ -31,10 +31,12 @@ public:
     return socket_;
   }
 
+  using Handler = std::function<HttpResponse()>;
+   
   void start()
   {
-    std::cout << "New connection from " << socket_.remote_endpoint().address().to_string() << "\n";
-
+     
+    // std::cout << "New connection from " << socket_.remote_endpoint().address().to_string() << "\n";
     timer_.expires_after(std::chrono::seconds(timeout_seconds_));
     timer_.async_wait(std::bind(&tcp_connection::handle_timeout, shared_from_this(), asio::placeholders::error));
 
@@ -45,8 +47,13 @@ private:
   tcp_connection(asio::io_context& io_context)
     : socket_(io_context),timer_(io_context)
   {
+    register_routes();
   }
   
+  void register_routes() {
+        routes_["/hello"] = [this]() { return service_.handle_hello(); };
+        routes_["/time"]  = [this]() { return service_.handle_time(); };        // 可继续添加：routes_["/api/user"] = ...
+    }
   void do_read()
   {
     // 使用固定大小 buffer 读取数据
@@ -58,12 +65,50 @@ private:
       }
   }
 
+  HttpRequest parse_HttpRequest() {
+    std::string request_str((std::istreambuf_iterator<char>(&streambuf_)),
+                            std::istreambuf_iterator<char>());
+    
+
+    HttpRequest req;
+    
+    std::istringstream iss(request_str);
+    std::string method, raw_path, version;
+    std::getline(iss, req.method, ' ');
+    std::getline(iss, req.path, ' ');
+    std::getline(iss, req.version, '\r');
+    
+
+    std::string& path = req.path;
+    size_t qpos = path.find('?');
+    if (qpos != std::string::npos) path = path.substr(0, qpos);
+    if(path=="/") path="/index.html";
+
+    // std::cout << "Request path: " << path << "\n";
+    // std::cout << "Request path: " << req.path << "\n";
+    // std::string connection_header;
+    // std::string line;
+    // while (std::getline(iss, line)) {
+    //     if (line == "\r") break;
+    //     size_t pos = line.find(": ");
+    //     if (pos != std::string::npos) {
+    //         std::string key = line.substr(0, pos);
+    //         std::string value = line.substr(pos + 2);
+    //         req.headers[key] = value;
+    //         if (key == "Connection" || key == "connection") {
+    //             req.should_keep_alive = (value != "close");
+    //         }
+    //     }
+    // }
+    
+    return req;
+}
   void handle_read(const std::error_code& error, size_t bytes_transferred)
   {
     if (error) {
         // 忽略 "Bad file descriptor" 和 "Operation cancelled"
         if (error == asio::error::eof) {
-            std::cout << "Client disconnected gracefully\n";
+            // std::cout << "Client disconnected gracefully\n";
             timer_.cancel();
             return;
         }
@@ -74,78 +119,26 @@ private:
         return;
     }
 
-    std::string request_str((std::istreambuf_iterator<char>(&streambuf_)),
-                            std::istreambuf_iterator<char>());
-    //更新最后活动时间
     last_activity_ = std::chrono::steady_clock::now();
-
-    // std::cout <<request_str << "\"\n";
     
-    std::istringstream iss(request_str);
-    std::string method, raw_path, version;
-    std::getline(iss, method, ' ');
-    std::getline(iss, raw_path, ' ');
-    std::getline(iss, version, '\r');
     
-
-    std::string path = raw_path;
-    size_t qpos = path.find('?');
-    if (qpos != std::string::npos) path = path.substr(0, qpos);
-    if (path == "/") path = "/index.html";
-
-    std::string connection_header;
-    std::string line;
-    while (std::getline(iss, line)) {
-        if (line == "\r") break;
-        size_t pos = line.find(": ");
-        if (pos != std::string::npos) {
-            std::string key = line.substr(0, pos);
-            if (key == "Connection" || key == "connection") {
-                connection_header = line.substr(pos + 2);
-                should_keep_alive_ = (connection_header != "close");
-            }
-        }
-    }
-
-   
-     if (method != "GET" && method != "HEAD") {
-        send_response(405, "Method Not Allowed", "Only GET and HEAD are supported.",   "text/plain");
-        return;
-    }
-
-    std::string filepath = "public" + path;
-    if (filepath.find("..") != std::string::npos) {
-        send_response(403, "Forbidden", "<h1>403 Forbidden</h1>", "text/html");
-        return;
-    }
      
-     std::string body = read_file(filepath);
-    if (body.empty() && path != "/index.html") {
-        // 尝试 fallback 到内置路由
-        if (path == "/hello.html" || path == "/hello") {
-            body = "<h1>Hello, World!</h1>";
-        } else if (path == "/time.html" || path == "/time") {
-            body = "<h1>Current time: " + make_daytime_string() + "</h1>";
-        } else {
-            send_response(404, "Not Found", "<h1>404 Not Found</h1>", "text/html");
-            return;
-        }
+    auto req=parse_HttpRequest();
+    std::string& path = req.path;
+    
+    HttpResponse res;
+    if (routes_.find(path) != routes_.end()) {
+        res = routes_[path]();
+    }else{
+      path=path.substr(1);
+        res = service_.handle_static_file(path);
     }
-    // std::cout << "Method: " << method << ", File Path: " << filepath << ", Version: " << version << "\n";
-    // std::cout<<"body: "<<body<<"\n";
-    std::string content_type = get_content_type(path);
-    if (method == "HEAD") {
-        // HEAD: 只返回头，不返回 body
-        send_response(200, "OK", "", content_type);
+
+    if (req.method == "HEAD") {
+        send_response(res,true);
     } else {
-        send_response(200, "OK", body, content_type);
+        send_response(res);
     }
-    
-    //  asio::async_write(socket_, asio::buffer(request_str + "\n"),
-    //     std::bind(&tcp_connection::handle_write, shared_from_this(),
-    //       asio::placeholders::error,
-    //       asio::placeholders::bytes_transferred));
-    
     // do_read();
   }
   void handle_write(const std::error_code& error, size_t bytes_transferred, bool should_keep_alive)
@@ -161,17 +154,17 @@ private:
     }
   }
 
-  void send_response(int status_code, const std::string& status_text, const std::string& body,const std::string& content_type = "text/html")
+  void send_response(HttpResponse& res,bool no_body=false)
   {
-     std::ostringstream response;
-    response << "HTTP/1.1 " << status_code << " " << status_text << "\r\n";
-    response << "Content-Length: " << body.length() << "\r\n";
-    response << "Content-Type: " << content_type << "\r\n";
-    response << "Connection: " << (should_keep_alive_ ? "keep-alive" : "close") << "\r\n";
+    std::ostringstream response;
+    response << "HTTP/1.1 " << res.status_code << " " << res.status_text << "\r\n";
+    response << "Content-Length: " << res.body.length() << "\r\n";
+    response << "Content-Type: " << res.content_type << "\r\n";
+    response << "Connection: " << (res.keep_alive ? "keep-alive" : "close") << "\r\n";
     response << "\r\n";
     
-    if (!body.empty()) {
-        response << body;
+    if (!res.body.empty()&& !no_body) {
+        response << res.body;
     }
 
     std::string response_str = response.str();
@@ -180,7 +173,7 @@ private:
         std::bind(&tcp_connection::handle_write, shared_from_this(),
           asio::placeholders::error,
           asio::placeholders::bytes_transferred,
-          should_keep_alive_));
+          res.keep_alive));
   }
 
 
@@ -206,4 +199,6 @@ private:
   asio::streambuf streambuf_;   
   std::chrono::steady_clock::time_point last_activity_; 
   bool should_keep_alive_ = true;
+  static std::unordered_map<std::string, Handler> routes_;
+  Service service_;
 };

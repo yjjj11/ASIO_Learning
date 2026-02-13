@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的 HTTP 服务器首页</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        h1 {
+            color: #89b4fa;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+        p {
+            font-size: 1.1rem;
+            color: #bac2de;
+            max-width: 600px;
+            text-align: center;
+        }
+        .status {
+            margin-top: 2rem;
+            padding: 1rem 2rem;
+            background-color: #313244;
+            border-radius: 8px;
+            color: #a6e3a1;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <p>这是一个由 Asio 驱动的 HTTP 服务器，正在稳定运行中。</p>
+    <div class="status">✅ 服务器状态：在线</div>
+</body>
+</html>
