@@ -1,3 +1,5 @@
+
+#include <asio/as_tuple.hpp>
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 #include <asio/io_context.hpp>
@@ -6,43 +8,37 @@
 #include <asio/write.hpp>
 #include <cstdio>
 
+using asio::as_tuple_t;
 using asio::ip::tcp;
 using asio::awaitable;
 using asio::co_spawn;
 using asio::detached;
-using asio::use_awaitable;
+using asio::use_awaitable_t;
+using default_token = as_tuple_t<use_awaitable_t<>>;
+using tcp_acceptor = default_token::as_default_on_t<tcp::acceptor>;
+using tcp_socket = default_token::as_default_on_t<tcp::socket>;
 namespace this_coro = asio::this_coro;
 
-#if defined(ASIO_ENABLE_HANDLER_TRACKING)
-# define use_awaitable \
-  asio::use_awaitable_t(__FILE__, __LINE__, __PRETTY_FUNCTION__)
-#endif
-
-awaitable<void> echo(tcp::socket socket)
+awaitable<void> echo(tcp_socket socket)
 {
-  try
+  char data[1024];
+  for (;;)
   {
-    char data[1024];
-    for (;;)
-    {
-      std::size_t n = co_await socket.async_read_some(asio::buffer(data), use_awaitable);
-      co_await async_write(socket, asio::buffer(data, n), use_awaitable);
-    }
-  }
-  catch (std::exception& e)
-  {
-    std::printf("echo Exception: %s\n", e.what());
+    auto [e1, nread] = co_await socket.async_read_some(asio::buffer(data));
+    if (nread == 0) break;
+    auto [e2, nwritten] = co_await async_write(socket, asio::buffer(data, nread));
+    if (nwritten != nread) break;
   }
 }
 
 awaitable<void> listener()
 {
   auto executor = co_await this_coro::executor;
-  tcp::acceptor acceptor(executor, {tcp::v4(), 55555});
+  tcp_acceptor acceptor(executor, {tcp::v4(), 55555});
   for (;;)
   {
-    tcp::socket socket = co_await acceptor.async_accept(use_awaitable);
-    co_spawn(executor, echo(std::move(socket)), detached);
+    if (auto [e, socket] = co_await acceptor.async_accept(); socket.is_open())
+      co_spawn(executor, echo(std::move(socket)), detached);
   }
 }
 

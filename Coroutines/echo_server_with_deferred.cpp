@@ -1,4 +1,15 @@
+//
+// echo_server.cpp
+// ~~~~~~~~~~~~~~~
+//
+// Copyright (c) 2003-2025 Christopher M. Kohlhoff (chris at kohlhoff dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+
 #include <asio/co_spawn.hpp>
+#include <asio/deferred.hpp>
 #include <asio/detached.hpp>
 #include <asio/io_context.hpp>
 #include <asio/ip/tcp.hpp>
@@ -9,14 +20,9 @@
 using asio::ip::tcp;
 using asio::awaitable;
 using asio::co_spawn;
+using asio::deferred;
 using asio::detached;
-using asio::use_awaitable;
 namespace this_coro = asio::this_coro;
-
-#if defined(ASIO_ENABLE_HANDLER_TRACKING)
-# define use_awaitable \
-  asio::use_awaitable_t(__FILE__, __LINE__, __PRETTY_FUNCTION__)
-#endif
 
 awaitable<void> echo(tcp::socket socket)
 {
@@ -25,8 +31,8 @@ awaitable<void> echo(tcp::socket socket)
     char data[1024];
     for (;;)
     {
-      std::size_t n = co_await socket.async_read_some(asio::buffer(data), use_awaitable);
-      co_await async_write(socket, asio::buffer(data, n), use_awaitable);
+      std::size_t n = co_await socket.async_read_some(asio::buffer(data), deferred);
+      co_await async_write(socket, asio::buffer(data, n), deferred);
     }
   }
   catch (std::exception& e)
@@ -41,7 +47,7 @@ awaitable<void> listener()
   tcp::acceptor acceptor(executor, {tcp::v4(), 55555});
   for (;;)
   {
-    tcp::socket socket = co_await acceptor.async_accept(use_awaitable);
+    tcp::socket socket = co_await acceptor.async_accept(deferred);
     co_spawn(executor, echo(std::move(socket)), detached);
   }
 }

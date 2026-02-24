@@ -1,3 +1,13 @@
+//
+// refactored_echo_server.cpp
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) 2003-2025 Christopher M. Kohlhoff (chris at kohlhoff dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 #include <asio/io_context.hpp>
@@ -13,20 +23,24 @@ using asio::detached;
 using asio::use_awaitable;
 namespace this_coro = asio::this_coro;
 
-#if defined(ASIO_ENABLE_HANDLER_TRACKING)
-# define use_awaitable \
-  asio::use_awaitable_t(__FILE__, __LINE__, __PRETTY_FUNCTION__)
-#endif
+awaitable<void> echo_once(tcp::socket& socket)
+{
+  char data[128];
+  std::size_t n = co_await socket.async_read_some(asio::buffer(data), use_awaitable);
+  co_await async_write(socket, asio::buffer(data, n), use_awaitable);
+}
 
 awaitable<void> echo(tcp::socket socket)
 {
   try
   {
-    char data[1024];
     for (;;)
     {
-      std::size_t n = co_await socket.async_read_some(asio::buffer(data), use_awaitable);
-      co_await async_write(socket, asio::buffer(data, n), use_awaitable);
+      // The asynchronous operations to echo a single chunk of data have been
+      // refactored into a separate function. When this function is called, the
+      // operations are still performed in the context of the current
+      // coroutine, and the behaviour is functionally equivalent.
+      co_await echo_once(socket);
     }
   }
   catch (std::exception& e)
